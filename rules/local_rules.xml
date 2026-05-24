@@ -1,0 +1,13 @@
+<group name="local,ssh_bruteforce,">
+
+  <rule id="100001" level="12" frequency="5" timeframe="360">
+    <if_matched_sid>5760</if_matched_sid>
+    <same_srcip />
+    <description>SSH brute force attack detected: 4+ failures from $(srcip) in 6 minutes</description>
+    <mitre>
+        <id>T1110</id>
+    </mitre>
+    <group>brute_force,authentication_failures,</group>
+</rule>
+
+</group>
