@@ -135,20 +135,44 @@ This is a true positive in a controlled lab context. In a real environment, the 
 
 ---
 
+## Investigation Report
+
+Full report: [`investigation_report/investigation_report.md`](investigation_report/investigation_report.md)
+
+**Alert triage summary:**
+
+| Field | Value |
+|-------|-------|
+| Source IP | 192.168.122.1 (Linux Mint host) |
+| Target | shaurya-fedora @ 192.168.122.62 |
+| Time window | 6 minutes |
+| Total failures | 6 |
+
+**Hypothesis:** Internal machine compromised or misconfigured automation.
+
+**Next steps (real-world response):**
+- Isolate the source IP via firewall rule
+- Examine the source machine for malware or unauthorized scripts
+- Enforce key-based authentication, disable password auth on SSH
+
+---
+
 ## Files
 
 ```
 wazuh-ssh-bruteforce-detection/
 ├── alerts/
-│   └── ssh-bruteforce-alert.json     full alert JSON from Wazuh index
+│   └── ssh-bruteforce-alert.json          full alert JSON from Wazuh index
 ├── architecture/
-│   └── lab-diagram.png               network diagram of the lab setup
+│   └── lab-diagram.png                    network diagram of the lab setup
 ├── images/
-│   ├── dashboard-before.png          dashboard state before the attack
-│   ├── dashboard-after.png           alert visible after attack simulation
-│   ├── local-rule.png                rule as deployed in the dashboard
-│   └── ssh-attack.png                terminal showing the brute force attempts
+│   ├── dashboard-before.png               dashboard state before the attack
+│   ├── dashboard-after.png                alert visible after attack simulation
+│   ├── local-rule.png                     rule as deployed in the dashboard
+│   └── ssh-attack.png                     terminal showing the brute force attempts
+├── investigation_report/
+│   └── investigation_report.md            triage summary and real-world response steps
 ├── rules/
-│   └── local_rules.xml               the custom detection rule
+│   └── local_rules.xml                    the custom detection rule
 └── README.md
 ```
