@@ -1,38 +1,30 @@
-# Wazuh SSH Brute Force Detection Lab
+# SSH Brute Force Detection with Wazuh
 
-Simulated an SSH brute force attack on a local KVM-based lab and detected it using a custom Wazuh rule. The alert fired correctly, mapped to MITRE T1110, and logged the attack chain with full context.
-
----
-
-## Lab Environment
-
-| Role | Machine |
-|------|---------|
-| Attacker + Host | Linux Mint (bare metal) |
-| Victim + Agent | Fedora Workstation (KVM VM) |
-| Wazuh SIEM | Ubuntu Server (KVM VM) |
-
-The Mint host ran both the attack simulation and the Wazuh dashboard browser session. The Fedora VM was the target, running the Wazuh agent and forwarding its SSH logs to the manager on Ubuntu Server.
+Simulated an SSH brute force attack on a local virtual lab and detected it using a custom Wazuh rule.
 
 ---
 
-## Architecture
+## What I Did
+
+Set up a small home lab with three machines — a Linux Mint host acting as the attacker, a Fedora workstation as the victim (running as a KVM VM), and an Ubuntu Server running the Wazuh stack (also a KVM VM).
+
+Wrote a custom local rule in Wazuh to detect repeated SSH login failures from the same IP within a short window. Then manually triggered the attack from the host machine by failing SSH logins into the Fedora VM multiple times. The rule fired, and the alert showed up on the Wazuh dashboard.
+
+---
+
+## Lab Setup
+
+| Role | OS |
+|------|-----|
+| Host / Attacker | Linux Mint |
+| Victim (Agent) | Fedora Workstation (KVM) |
+| Wazuh (SIEM) | Ubuntu Server (KVM) |
 
 ![Lab Diagram](architecture/lab-diagram.png)
 
 ---
 
-## What Was Done
-
-**1. Verified the Wazuh stack was running on Ubuntu Server**
-```bash
-sudo systemctl status wazuh-manager wazuh-indexer wazuh-dashboard --no-pager
-```
-All three active before proceeding.
-
-**2. Wrote and deployed a custom detection rule**
-
-Added to `/var/ossec/etc/rules/local_rules.xml`:
+## The Rule
 
 ```xml
 <group name="local,ssh_bruteforce,">
@@ -48,98 +40,74 @@ Added to `/var/ossec/etc/rules/local_rules.xml`:
 </group>
 ```
 
-Rule logic: fires when 5 or more events matching SID 5760 (SSH authentication failure) come from the same source IP within a 6-minute window. SID 5760 is Wazuh's base rule for SSH failed password attempts.
-
-**3. Restarted the Wazuh manager to load the rule**
-```bash
-sudo systemctl restart wazuh-manager
-```
-
-**4. Checked the dashboard baseline before the attack**
-
-Confirmed no active alerts for the target machine.
-
-![Dashboard Before](images/dashboard-before.png)
-
-**5. Ran the simulated brute force from Linux Mint against the Fedora VM**
-
-Manually failed SSH authentication 6 times in quick succession:
-```bash
-ssh shaurya-fedora@192.168.122.62
-# wrong password × 6
-```
-
-![SSH Attack](images/ssh-attack.png)
-
-**6. Verified the alert fired in the Wazuh dashboard**
-
-Rule 100001 triggered. Alert visible with correct metadata.
-
-![Dashboard After](images/dashboard-after.png)
-![Local Rule](images/local-rule.png)
+Triggers when 5+ failed SSH attempts come from the same source IP within 6 minutes. Mapped to MITRE ATT&CK **T1110 — Brute Force**.
 
 ---
 
-## Alert Output
+## Screenshots
 
-Full JSON from the Wazuh index: [`alerts/ssh-bruteforce-alert.json`](alerts/ssh-bruteforce-alert.json)
+**Before the attack**
+![Dashboard Before](images/dashboard-before.png)
 
-Key fields:
+**Running the attack**
+![SSH Attack](images/ssh-attack.png)
+
+**Rule configuration**
+![Local Rule](images/local-rule.png)
+
+**Alert triggered**
+![Dashboard After](images/dashboard-after.png)
+
+---
+
+## Alert (JSON)
+
+The full alert output is in [`alerts/ssh-bruteforce-alert.json`](alerts/ssh-bruteforce-alert.json).
+
+Quick summary of what fired:
 
 | Field | Value |
 |-------|-------|
-| `rule.id` | 100001 |
-| `rule.level` | 12 |
-| `rule.description` | SSH brute force attack detected: 4+ failures from 192.168.122.1 in 6 minutes |
-| `rule.mitre.id` | T1110 |
-| `rule.mitre.tactic` | Credential Access |
-| `data.srcip` | 192.168.122.1 (Linux Mint host) |
-| `data.dstuser` | shaurya-fedora |
-| `agent.name` | Fedora-desktop |
-| `agent.ip` | 192.168.122.62 |
-| `manager.name` | dell-3490 |
-| `timestamp` | 2026-05-24T09:01:02.569Z |
+| Rule ID | 100001 |
+| Level | 12 (high severity) |
+| Source IP | 192.168.122.1 (Linux Mint host) |
+| Target user | shaurya-fedora |
+| Agent | Fedora-desktop |
+| MITRE | T1110 — Credential Access |
+| Timestamp | 2026-05-24 09:01:02 UTC |
 
-The `previous_output` field in the alert contains the 4 preceding failed login lines that triggered the rule — showing the full attack chain, not just the final event.
+The `previous_output` field in the alert JSON contains the 4 preceding failed login lines — the full attack chain, not just the final triggering event.
 
 ---
 
-## Custom Rule — Explained
+## Rule — Technical Breakdown
 
 ```xml
 <rule id="100001" level="12" frequency="5" timeframe="360">
 ```
 
-- `id="100001"` — custom rules start at 100000 to avoid colliding with Wazuh's built-in rule IDs
-- `level="12"` — high severity (Wazuh scale: 0–15)
-- `frequency="5"` — rule fires after 5 matching events
+- `id="100001"` — custom rules start at 100000 to avoid colliding with Wazuh's built-in IDs
+- `level="12"` — high severity on Wazuh's 0–15 scale
+- `frequency="5"` — fires after 5 matching events
 - `timeframe="360"` — within a 360-second (6-minute) window
 
 ```xml
 <if_matched_sid>5760</if_matched_sid>
 ```
-Watches for events already matched by SID 5760 — Wazuh's base rule for SSH failed password. This rule stacks on top of it rather than trying to re-parse the raw log.
+
+SID 5760 is Wazuh's base rule for SSH failed password attempts. This custom rule stacks on top of it — no need to re-parse the raw log, just watch for that rule firing repeatedly.
 
 ```xml
 <same_srcip />
 ```
-The 5 failures must come from the same source IP. Without this, failures from different IPs could accumulate and trigger the rule incorrectly.
 
----
-
-## Detection Result
-
-The alert fired after 5 failed attempts from `192.168.122.1` against `shaurya-fedora` on the Fedora VM. Rule frequency was set to 5 — so the 6th attempt within the timeframe was the trigger.
-
-This is a true positive in a controlled lab context. In a real environment, the triage question would be: is `192.168.122.1` a known internal machine, and is this volume of failures consistent with an admin typo or a scripted attack?
+The 5 failures must come from the same source IP. Without this, failures from different IPs could accumulate across the timeframe and incorrectly trigger the rule.
 
 ---
 
 ## Investigation Report
 
-Full report: [`investigation_report/investigation_report.md`](investigation_report/investigation_report.md)
-
-**Alert triage summary:**
+Full triage write-up: [`investigation_report/investigation_report.md`](investigation_report/investigation_report.md)
 
 | Field | Value |
 |-------|-------|
@@ -147,12 +115,13 @@ Full report: [`investigation_report/investigation_report.md`](investigation_repo
 | Target | shaurya-fedora @ 192.168.122.62 |
 | Time window | 6 minutes |
 | Total failures | 6 |
+| Verdict | True positive (controlled lab) |
 
 **Hypothesis:** Internal machine compromised or misconfigured automation.
 
-**Next steps (real-world response):**
-- Isolate the source IP via firewall rule
-- Examine the source machine for malware or unauthorized scripts
+**Real-world next steps:**
+- Isolate source IP via firewall rule
+- Examine source machine for malware or unauthorized scripts
 - Enforce key-based authentication, disable password auth on SSH
 
 ---
@@ -162,17 +131,25 @@ Full report: [`investigation_report/investigation_report.md`](investigation_repo
 ```
 wazuh-ssh-bruteforce-detection/
 ├── alerts/
-│   └── ssh-bruteforce-alert.json          full alert JSON from Wazuh index
+│   └── ssh-bruteforce-alert.json          # Raw alert from Wazuh index
 ├── architecture/
-│   └── lab-diagram.png                    network diagram of the lab setup
+│   └── lab-diagram.png                    # Lab topology
 ├── images/
-│   ├── dashboard-before.png               dashboard state before the attack
-│   ├── dashboard-after.png                alert visible after attack simulation
-│   ├── local-rule.png                     rule as deployed in the dashboard
-│   └── ssh-attack.png                     terminal showing the brute force attempts
+│   ├── dashboard-before.png
+│   ├── dashboard-after.png
+│   ├── local-rule.png
+│   └── ssh-attack.png
 ├── investigation_report/
-│   └── investigation_report.md            triage summary and real-world response steps
+│   └── investigation_report.md            # Triage summary and response steps
 ├── rules/
-│   └── local_rules.xml                    the custom detection rule
+│   └── local_rules.xml                    # Custom Wazuh rule
 └── README.md
 ```
+
+---
+
+## Tools Used
+
+- [Wazuh](https://wazuh.com) — open source SIEM / XDR
+- KVM — virtualization
+- Linux Mint, Fedora, Ubuntu Server
